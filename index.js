@@ -1,17 +1,8 @@
 require('dotenv').config();
 const express = require('express');
-const puppeteer = require('puppeteer-extra');
-const RecaptchaPlugin = require('puppeteer-extra-plugin-recaptcha');
+const puppeteer = require('puppeteer');
 const axios = require('axios');
 const bodyParser = require('body-parser');
-
-// 2Captcha sağlayıcısını ayarla
-puppeteer.use(
-  RecaptchaPlugin({
-    provider: { id: '2captcha', token: process.env.CAPTCHA_API_KEY },
-    visualFeedback: true
-  })
-);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -25,16 +16,42 @@ app.post('/search', async (req, res) => {
   }
 
   try {
-    const browser = await puppeteer.launch({ headless: true });
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: ['--disable-blink-features=AutomationControlled']
+    });
     const page = await browser.newPage();
+
+    // Optional: gerçek bir tarayıcı davranışı taklidi için user-agent
+    await page.setUserAgent(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+      'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+      'Chrome/114.0.0.0 Safari/537.36'
+    );
+
     await page.goto('https://www.turkpatent.gov.tr/arastirma-yap', { waitUntil: 'networkidle2' });
 
-    // reCAPTCHA’yı çöz
-    await page.solveRecaptchas();
-    // grecaptcha token’ını yakala
-    const token = await page.evaluate(() => grecaptcha.getResponse());
+    // Invisible reCAPTCHA site key’i script tag’inden al
+    const siteKey = await page.evaluate(() => {
+      const script = Array.from(document.querySelectorAll('script[src]'))
+        .find(s => s.src.includes('/reload?k='));
+      const url = new URL(script.src);
+      return url.searchParams.get('k');
+    });
 
-    // API payload
+    // grecaptcha objesinin yüklenmesini bekle
+    await page.waitForFunction('window.grecaptcha !== undefined');
+
+    // reCAPTCHA token’ını al
+    const token = await page.evaluate((key) => {
+      return new Promise(resolve => {
+        grecaptcha.ready(() => {
+          grecaptcha.execute(key, { action: 'search' }).then(resolve);
+        });
+      });
+    }, siteKey);
+
+    // API için payload hazırla
     const payload = {
       type: 'trademark',
       params: {
@@ -55,6 +72,7 @@ app.post('/search', async (req, res) => {
       token
     };
 
+    // /api/research endpoint’ine POST isteği
     const response = await axios.post(
       'https://www.turkpatent.gov.tr/api/research',
       payload,
@@ -69,18 +87,11 @@ app.post('/search', async (req, res) => {
 
     await browser.close();
     res.json(response.data);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message });
   }
 });
-puppeteer.use(
-  RecaptchaPlugin({
-    provider: { id: '2captcha', token: process.env.CAPTCHA_API_KEY },
-    visualFeedback: true,
-+   solveInvisibleReCAPTCHAs: true    // Invisible reCAPTCHA’ları da çözülsün
-  })
-);
 
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
