@@ -1,13 +1,12 @@
-require('dotenv').config();
 const express = require('express');
-const puppeteer = require('puppeteer');
 const axios = require('axios');
-const bodyParser = require('body-parser');
+const puppeteer = require('puppeteer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(bodyParser.json());
+// JSON gövdesi parse etmek için
+app.use(express.json());
 
 app.post('/search', async (req, res) => {
   const { searchText, next = 0, limit = 20 } = req.body;
@@ -15,34 +14,34 @@ app.post('/search', async (req, res) => {
     return res.status(400).json({ error: 'searchText is required' });
   }
 
+  let browser;
   try {
-    const browser = await puppeteer.launch({
+    // 1) Gerçek Chrome taklidiyle Puppeteer başlat
+    browser = await puppeteer.launch({
       headless: true,
       args: ['--disable-blink-features=AutomationControlled']
     });
     const page = await browser.newPage();
-
-    // Optional: gerçek bir tarayıcı davranışı taklidi için user-agent
     await page.setUserAgent(
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
       'AppleWebKit/537.36 (KHTML, like Gecko) ' +
       'Chrome/114.0.0.0 Safari/537.36'
     );
 
+    // 2) Araştırma sayfasını yükle
     await page.goto('https://www.turkpatent.gov.tr/arastirma-yap', { waitUntil: 'networkidle2' });
 
-    // Invisible reCAPTCHA site key’i script tag’inden al
+    // 3) Sayfadaki <script src="…/reload?k=…"> içinden siteKey'i çıkar
     const siteKey = await page.evaluate(() => {
-      const script = Array.from(document.querySelectorAll('script[src]'))
+      const tag = Array.from(document.querySelectorAll('script[src]'))
         .find(s => s.src.includes('/reload?k='));
-      const url = new URL(script.src);
-      return url.searchParams.get('k');
+      return new URL(tag.src).searchParams.get('k');
     });
 
-    // grecaptcha objesinin yüklenmesini bekle
+    // 4) grecaptcha objesinin yüklenmesini bekle
     await page.waitForFunction('window.grecaptcha !== undefined');
 
-    // reCAPTCHA token’ını al
+    // 5) grecaptcha.execute ile invisible token'ı al
     const token = await page.evaluate((key) => {
       return new Promise(resolve => {
         grecaptcha.ready(() => {
@@ -51,7 +50,7 @@ app.post('/search', async (req, res) => {
       });
     }, siteKey);
 
-    // API için payload hazırla
+    // 6) TürkPatent API payload'unu hazırla
     const payload = {
       type: 'trademark',
       params: {
@@ -72,24 +71,27 @@ app.post('/search', async (req, res) => {
       token
     };
 
-    // /api/research endpoint’ine POST isteği
+    // 7) API çağrısını yap ve cevabı al
     const response = await axios.post(
       'https://www.turkpatent.gov.tr/api/research',
       payload,
       {
         headers: {
           'Content-Type': 'application/json',
-          Origin: 'https://www.turkpatent.gov.tr',
-          Referer: 'https://www.turkpatent.gov.tr/arastirma-yap'
+          Origin:    'https://www.turkpatent.gov.tr',
+          Referer:   'https://www.turkpatent.gov.tr/arastirma-yap'
         }
       }
     );
 
+    // 8) Tarayıcıyı kapat ve cevabı ilet
     await browser.close();
     res.json(response.data);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: error.message });
+
+  } catch (err) {
+    if (browser) await browser.close();
+    console.error(err);
+    res.status(500).json({ error: err.message });
   }
 });
 
