@@ -74,6 +74,13 @@ app.post('/search', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+puppeteer.use(
+  RecaptchaPlugin({
+    provider: { id: '2captcha', token: process.env.CAPTCHA_API_KEY },
+    visualFeedback: true,
++   solveInvisibleReCAPTCHAs: true    // Invisible reCAPTCHA’ları da çözülsün
+  })
+);
 
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
