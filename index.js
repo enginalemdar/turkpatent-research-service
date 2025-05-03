@@ -17,10 +17,17 @@ app.post('/search', async (req, res) => {
   let browser;
   try {
     // 1) Gerçek Chrome taklidiyle Puppeteer başlat
-    browser = await puppeteer.launch({
-      headless: true,
-      args: ['--disable-blink-features=AutomationControlled']
-    });
+    
+  browser = await puppeteer.launch({
+   headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-blink-features=AutomationControlled'
+    ]
+  });
+
+    
     const page = await browser.newPage();
     await page.setUserAgent(
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
