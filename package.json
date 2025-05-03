@@ -8,6 +8,6 @@
   "dependencies": {
     "axios": "^0.21.1",
     "express": "^4.17.1",
-    "puppeteer": "^20.9.0"
+    "puppeteer-core": "^20.9.0"
   }
 }
