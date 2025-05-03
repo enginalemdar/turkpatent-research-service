@@ -32,18 +32,22 @@ app.post('/search', async (req, res) => {
       'Chrome/114.0.0.0 Safari/537.36'
     );
 
-    // 2) Sayfayı yükle ve siteKey'i al
+    // 2) Sayfayı yükle
     await page.goto('https://www.turkpatent.gov.tr/arastirma-yap', { waitUntil: 'networkidle2' });
+
+    // 3) <script src=".../api.js?render=SITE_KEY"> içinden siteKey'i çıkar
     const siteKey = await page.evaluate(() => {
       const tag = Array.from(document.querySelectorAll('script[src]'))
-        .find(s => s.src.includes('/reload?k='));
-      return new URL(tag.src).searchParams.get('k');
+        .find(s => s.src.includes('api.js?render='));
+      if (!tag) throw new Error('reCAPTCHA site key script not found');
+      const url = new URL(tag.src);
+      return url.searchParams.get('render');
     });
 
-    // 3) grecaptcha yüklensin
+    // 4) grecaptcha objesinin yüklenmesini bekle
     await page.waitForFunction('window.grecaptcha !== undefined');
 
-    // 4) Token al
+    // 5) grecaptcha.execute ile invisible token'ı al
     const token = await page.evaluate((key) => {
       return new Promise(resolve => {
         grecaptcha.ready(() => {
@@ -52,7 +56,7 @@ app.post('/search', async (req, res) => {
       });
     }, siteKey);
 
-    // 5) API çağrısı
+    // 6) TürkPatent API payload'unu hazırla
     const payload = {
       type: 'trademark',
       params: {
@@ -72,6 +76,8 @@ app.post('/search', async (req, res) => {
       order: null,
       token
     };
+
+    // 7) API çağrısını yap ve cevabı al
     const response = await axios.post(
       'https://www.turkpatent.gov.tr/api/research',
       payload,
@@ -84,6 +90,7 @@ app.post('/search', async (req, res) => {
       }
     );
 
+    // 8) Tarayıcıyı kapat ve cevabı ilet
     await browser.close();
     res.json(response.data);
 
